@@ -1,4 +1,4 @@
-from flask import Flask, request , jsonify
+from flask import Flask, request , Response
 import os
 from PIL import Image
 import io
@@ -44,45 +44,21 @@ import torch.optim as optim
 import numpy as np
 import cv2
 
-@app.route('/train',methods=['GET'])
-def train():
-    folder_name = 'dataset'
-    current_directory = os.getcwd()
-    folder_path = os.path.join(current_directory, folder_name)
+import json
 
-    if os.path.exists(folder_path) and os.path.isdir(folder_path):
-        subfolders = [name for name in os.listdir(folder_path) if os.path.isdir(os.path.join(folder_path, name))]
-        
-        num_subfolders = len(subfolders)
-    else:
-        return "No subfolder"
-    
-    class Fire(nn.Module):
+# folder_name = 'dataset'
+# current_directory = os.getcwd()
+# folder_path = os.path.join(current_directory, folder_name)
+# if os.path.exists(folder_path) and os.path.isdir(folder_path):
+#     subfolders = [name for name in os.listdir(folder_path) if os.path.isdir(os.path.join(folder_path, name))]
 
-        def __init__(self, inplanes, squeeze_planes,
-                    expand1x1_planes, expand3x3_planes):
-            super(Fire, self).__init__()
-            self.inplanes = inplanes
-            self.squeeze = nn.Conv2d(inplanes, squeeze_planes, kernel_size=1)
-            self.squeeze_activation = nn.ReLU(inplace=True)
-            self.expand1x1 = nn.Conv2d(squeeze_planes, expand1x1_planes,
-                                    kernel_size=1)
-            self.expand1x1_activation = nn.ReLU(inplace=True)
-            self.expand3x3 = nn.Conv2d(squeeze_planes, expand3x3_planes,
-                                    kernel_size=3, padding=1)
-            self.expand3x3_activation = nn.ReLU(inplace=True)
+#     num_subfolders = len(subfolders)
 
-        def forward(self, x):
-            x = self.squeeze_activation(self.squeeze(x))
-            return torch.cat([
-                self.expand1x1_activation(self.expand1x1(x)),
-                self.expand3x3_activation(self.expand3x3(x))
-            ], 1)
 
-    class SqueezeNet(nn.Module):
+class SqueezeNet(nn.Module):
         
 
-        def __init__(self,  num_classes=num_subfolders):
+        def __init__(self,  num_classes=10):
             super(SqueezeNet, self).__init__()
             
             self.num_classes = num_classes
@@ -125,6 +101,41 @@ def train():
             x = self.classifier(x)
             return x.view(x.size(0), self.num_classes)
 
+class Fire(nn.Module):
+
+        def __init__(self, inplanes, squeeze_planes,
+                    expand1x1_planes, expand3x3_planes):
+            super(Fire, self).__init__()
+            self.inplanes = inplanes
+            self.squeeze = nn.Conv2d(inplanes, squeeze_planes, kernel_size=1)
+            self.squeeze_activation = nn.ReLU(inplace=True)
+            self.expand1x1 = nn.Conv2d(squeeze_planes, expand1x1_planes,
+                                    kernel_size=1)
+            self.expand1x1_activation = nn.ReLU(inplace=True)
+            self.expand3x3 = nn.Conv2d(squeeze_planes, expand3x3_planes,
+                                    kernel_size=3, padding=1)
+            self.expand3x3_activation = nn.ReLU(inplace=True)
+
+        def forward(self, x):
+            x = self.squeeze_activation(self.squeeze(x))
+            return torch.cat([
+                self.expand1x1_activation(self.expand1x1(x)),
+                self.expand3x3_activation(self.expand3x3(x))
+            ], 1)
+
+@app.route('/train',methods=['GET'])
+def train():
+    folder_name = 'dataset'
+    current_directory = os.getcwd()
+    folder_path = os.path.join(current_directory, folder_name)
+
+    if os.path.exists(folder_path) and os.path.isdir(folder_path):
+        subfolders = [name for name in os.listdir(folder_path) if os.path.isdir(os.path.join(folder_path, name))]
+        
+        num_subfolders = len(subfolders)
+    else:
+        return "No subfolder"
+    
 
     model = SqueezeNet()
 
@@ -187,7 +198,7 @@ def frame_upload():
         # Create a pillow image from the decoded bytes
         img = Image.open(io.BytesIO(image_bytes))
 
-        dataset_folder = "headout-b\dataset"
+        dataset_folder = "dataset/"
         class_mapping = {}
 
         class_names = [d for d in os.listdir(dataset_folder) if os.path.isdir(os.path.join(dataset_folder, d))]
@@ -200,7 +211,11 @@ def frame_upload():
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
-        image = transform(image)
+        image = transform(img)
+
+        model = SqueezeNet()
+        model.load_state_dict(torch.load('squeezenet_model.pth'))
+        model.eval()
 
         with torch.no_grad():
             output = model(image.unsqueeze(0))
@@ -210,8 +225,9 @@ def frame_upload():
         class_probabilities_dict = {class_name: probability for class_name, probability in zip(class_names, class_probabilities)}
 
         json_output = json.dumps(class_probabilities_dict, indent=4)
-        
-        return jsonify(json_output)
+
+        print(json_output)
+        return Response(response=json_output,status=200,mimetype='application/json')
 
 
 if __name__ == '__main__':
