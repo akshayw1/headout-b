@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request , jsonify
 import os
 from PIL import Image
 import io
@@ -181,14 +181,37 @@ def frame_upload():
     if fileContent:
         header, encoded = fileContent.split(',', 1)
 
-        # # Determine the file extension (e.g., jpg, png)
-        # ext = header.split('/')[1].split(';')[0]
-
         # Decode the base64 string into bytes
         image_bytes = base64.b64decode(encoded)
 
-        # Create a PIL image from the decoded bytes
+        # Create a pillow image from the decoded bytes
         img = Image.open(io.BytesIO(image_bytes))
+
+        dataset_folder = "headout-b\dataset"
+        class_mapping = {}
+
+        class_names = [d for d in os.listdir(dataset_folder) if os.path.isdir(os.path.join(dataset_folder, d))]
+
+        for i, class_name in enumerate(class_names):
+            class_mapping[i] = class_name
+
+        transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+        image = transform(image)
+
+        with torch.no_grad():
+            output = model(image.unsqueeze(0))
+            probabilities = torch.softmax(output, dim=1)
+            
+        class_probabilities = probabilities[0].tolist()
+        class_probabilities_dict = {class_name: probability for class_name, probability in zip(class_names, class_probabilities)}
+
+        json_output = json.dumps(class_probabilities_dict, indent=4)
+        
+        return jsonify(json_output)
 
 
 if __name__ == '__main__':
