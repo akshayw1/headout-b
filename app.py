@@ -178,12 +178,7 @@ def train():
 
     torch.save(model.state_dict(), 'squeezenet_model.pth')
 
-
-
-    model = SqueezeNet()
-    model.load_state_dict(torch.load('squeezenet_model.pth'))
-    model.eval()
-
+    return Response(status=200)
 
 
 @app.route('/frame',methods=['POST'])
@@ -228,6 +223,7 @@ def frame_upload():
 
         print(json_output)
         return Response(response=json_output,status=200,mimetype='application/json')
+
 
 
 if __name__ == '__main__':
