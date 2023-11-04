@@ -1,10 +1,13 @@
 from flask import Flask, request , Response
 import os
 from PIL import Image
+from flask_cors import CORS
 import io
 import base64
 import time
 app = Flask(__name__)
+CORS(app, origins='*')  # Allow CORS from all origins
+
 
 @app.route('/upload', methods=['POST'])
 def upload():
