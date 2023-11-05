@@ -46,183 +46,240 @@ from torch.utils.data import DataLoader
 import torch.optim as optim
 import numpy as np
 import cv2
+import base64
 
 import json
 import pandas as pd
 import spacy
 from spacy.util import minibatch
 from spacy.training.example import Example
+from skimage.metrics import structural_similarity
 
+def similarity_score(im1, im2):
+    im1 = cv2.cvtColor(im1, cv2.COLOR_BGR2GRAY)
+    im2 = cv2.cvtColor(im2, cv2.COLOR_BGR2GRAY)
+    
+    score, diff = structural_similarity(im1, im2, full=True)
+    return score
 
-
-class SqueezeNet(nn.Module):
-        
-
-        def __init__(self,  num_classes=10):
-            super(SqueezeNet, self).__init__()
-            
-            self.num_classes = num_classes
-            
-            self.features = nn.Sequential(
-                    nn.Conv2d(3, 64, kernel_size=3, stride=2),
-                    nn.ReLU(inplace=True),
-                    nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True),
-                    Fire(64, 16, 64, 64),
-                    Fire(128, 16, 64, 64),
-                    nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True),
-                    Fire(128, 32, 128, 128),
-                    Fire(256, 32, 128, 128),
-                    nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True),
-                    Fire(256, 48, 192, 192),
-                    Fire(384, 48, 192, 192),
-                    Fire(384, 64, 256, 256),
-                    Fire(512, 64, 256, 256),
-                )
-            
-            final_conv = nn.Conv2d(512, self.num_classes, kernel_size=1)
-            self.classifier = nn.Sequential(
-                nn.Dropout(p=0.5),
-                final_conv,
-                nn.ReLU(inplace=True),
-                nn.AvgPool2d(13)
-            )
-
-            for m in self.modules():
-                if isinstance(m, nn.Conv2d):
-                    if m is final_conv:
-                        init.normal(m.weight.data, mean=0.0, std=0.01)
-                    else:
-                        init.kaiming_uniform(m.weight.data)
-                    if m.bias is not None:
-                        m.bias.data.zero_()
-
-        def forward(self, x):
-            x = self.features(x)
-            x = self.classifier(x)
-            return x.view(x.size(0), self.num_classes)
-
-class Fire(nn.Module):
-
-        def __init__(self, inplanes, squeeze_planes,
-                    expand1x1_planes, expand3x3_planes):
-            super(Fire, self).__init__()
-            self.inplanes = inplanes
-            self.squeeze = nn.Conv2d(inplanes, squeeze_planes, kernel_size=1)
-            self.squeeze_activation = nn.ReLU(inplace=True)
-            self.expand1x1 = nn.Conv2d(squeeze_planes, expand1x1_planes,
-                                    kernel_size=1)
-            self.expand1x1_activation = nn.ReLU(inplace=True)
-            self.expand3x3 = nn.Conv2d(squeeze_planes, expand3x3_planes,
-                                    kernel_size=3, padding=1)
-            self.expand3x3_activation = nn.ReLU(inplace=True)
-
-        def forward(self, x):
-            x = self.squeeze_activation(self.squeeze(x))
-            return torch.cat([
-                self.expand1x1_activation(self.expand1x1(x)),
-                self.expand3x3_activation(self.expand3x3(x))
-            ], 1)
 
 @app.route('/train',methods=['GET'])
 def train():
+
+
     folder_name = 'dataset'
+
     current_directory = os.getcwd()
+
     folder_path = os.path.join(current_directory, folder_name)
 
     if os.path.exists(folder_path) and os.path.isdir(folder_path):
-        subfolders = [name for name in os.listdir(folder_path) if os.path.isdir(os.path.join(folder_path, name))]
-        
+        subfolders = [name for name in os.listdir(
+            folder_path) if os.path.isdir(os.path.join(folder_path, name))]
+
         num_subfolders = len(subfolders)
+
+        print(f'Total number of subfolders in "{folder_name}": {num_subfolders}')
     else:
-        return "No subfolder",404
-    
+        print(
+            f'The folder "{folder_name}" does not exist in the current directory.')
 
-    model = SqueezeNet()
 
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)), 
-        transforms.ToTensor(),          
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  
-    ])
-
-    dataset_root = './dataset'
-
-    dataset = ImageFolder(root=dataset_root, transform=transform)
-
-    num_classes = len(dataset.classes)
-
-    batch_size = 7
-
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True) 
+    num_classes = num_subfolders
 
 
 
+    # directory = os.fsencode('dataset')
+    dir = 'dataset'
 
-    os.environ["OMP_NUM_THREADS"] = "1"
+    data = {}
 
-    criterion = nn.CrossEntropyLoss()
 
-    learning_rate = 0.001
-    optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
+    for folder in os.listdir(dir):
+        print(folder)
+        for file in os.listdir(dir+'/'+folder):
+            filename = os.fsdecode(file)
+            if (filename.endswith('jpeg')):
+                if (folder in data.keys()):
+                    data[folder].append(f"{dir}/{folder}/{filename}")
+                else:
+                    data[folder] = [f"{dir}/{folder}/{filename}"]
+    bm_data = {}
 
-    num_epochs = 7
+    for key in data:
+        # img=cv2.imread(data[key][0])
+        for image in data[key]:
+            this_image = cv2.imread(image, 1)
 
-    for epoch in range(num_epochs):
-        for batch in dataloader:
-            inputs, labels = batch
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+            if (key in bm_data.keys()):
+                bm_data[key].append(this_image)
+            else:
+                bm_data[key] = [this_image]
 
-    torch.save(model.state_dict(), 'squeezenet_model.pth')
+    for key in bm_data:
+        avg_image = bm_data[key][0]
+        for i in range(len(bm_data[key])):
+            if i == 0:
+                pass
+            else:
+                alpha = 1.0/(i + 1)
+                beta = 1.0 - alpha
+                avg_image = cv2.addWeighted(
+                    bm_data[key][i], alpha, avg_image, beta, 0.0)
+        bm_data[key] = avg_image
+
 
     return Response(status=200)
 
 
 @app.route('/frame',methods=['POST'])
 def frame_upload():
+
+    folder_name = 'dataset'
+
+    current_directory = os.getcwd()
+
+    folder_path = os.path.join(current_directory, folder_name)
+
+    if os.path.exists(folder_path) and os.path.isdir(folder_path):
+        subfolders = [name for name in os.listdir(
+            folder_path) if os.path.isdir(os.path.join(folder_path, name))]
+
+        num_subfolders = len(subfolders)
+
+    else:
+        return "No subfolder"
+
+
+    num_classes = num_subfolders
+
+
+
+    # directory = os.fsencode('dataset')
+    dir = 'dataset'
+
+    data = {}
+
+
+    for folder in os.listdir(dir):
+        # print(folder)
+        for file in os.listdir(dir+'/'+folder):
+            filename = os.fsdecode(file)
+            if (filename.endswith('jpeg')):
+                if (folder in data.keys()):
+                    data[folder].append(f"{dir}/{folder}/{filename}")
+                else:
+                    data[folder] = [f"{dir}/{folder}/{filename}"]
+    bm_data = {}
+
+    for key in data:
+        # img=cv2.imread(data[key][0])
+        for image in data[key]:
+            this_image = cv2.imread(image, 1)
+
+            if (key in bm_data.keys()):
+                bm_data[key].append(this_image)
+            else:
+                bm_data[key] = [this_image]
+
+    for key in bm_data:
+        avg_image = bm_data[key][0]
+        for i in range(len(bm_data[key])):
+            if i == 0:
+                pass
+            else:
+                alpha = 1.0/(i + 1)
+                beta = 1.0 - alpha
+                avg_image = cv2.addWeighted(
+                    bm_data[key][i], alpha, avg_image, beta, 0.0)
+        bm_data[key] = avg_image
+
     fileContent = request.form['image']
-    if fileContent:
-        header, encoded = fileContent.split(',', 1)
+    header , encoded = fileContent.split(',', 1)
+    decoded_data = base64.b64decode(encoded)
+    # Convert to NumPy array
+    # test_im = np.frombuffer(decoded_data, np.uint8)
 
-        # Decode the base64 string into bytes
-        image_bytes = base64.b64decode(encoded)
+    # Read the image using OpenCV
+    # img = cv2.imdecode(np_data, cv2.IMREAD_COLOR)
+    fileName = "train.jpeg"
+    img = Image.open(io.BytesIO(decoded_data))
+    img.save(fileName)
+    # cv2.imwrite(fileName,img)
+    test_im=cv2.imread(fileName)
+    print(test_im.shape==bm_data["bhuppi2"].shape)
 
-        # Create a pillow image from the decoded bytes
-        img = Image.open(io.BytesIO(image_bytes))
+    dim=list(bm_data[list(bm_data.keys())[0]].shape)
 
-        dataset_folder = "dataset/"
-        class_mapping = {}
 
-        class_names = [d for d in os.listdir(dataset_folder) if os.path.isdir(os.path.join(dataset_folder, d))]
+    # test_im=test_im.reshape((225,300,3))
+    test_im=cv2.resize(test_im,dsize=(dim[1], dim[0]), interpolation=cv2.INTER_CUBIC)
+    print(test_im.shape,bm_data["bhuppi2"].shape)
+    # test_im2=cv2.imread("b2.jpg")
+    # print()
 
-        for i, class_name in enumerate(class_names):
-            class_mapping[i] = class_name
+    # im1 = cv2.cvtColor(test_im, cv2.COLOR_BGR2GRAY)
+    # im1 = cv2.cvtColor(test_im2, cv2.COLOR_BGR2GRAY)
 
-        transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
-        image = transform(img)
+    # first = cv2.imread('jot.jpg')
+    # second = cv2.imread('b2.jpg')
 
-        model = SqueezeNet()
-        model.load_state_dict(torch.load('squeezenet_model.pth'))
-        model.eval()
+    # print(type(first))
+    # Convert images to grayscale
+    # first_gray = cv2.cvtColor(test_im, cv2.COLOR_BGR2GRAY)
+    # second_gray = cv2.cvtColor(test_im2, cv2.COLOR_BGR2GRAY)
 
-        with torch.no_grad():
-            output = model(image.unsqueeze(0))
-            probabilities = torch.softmax(output, dim=1)
-            
-        class_probabilities = probabilities[0].tolist()
-        class_probabilities_dict = {class_name: probability for class_name, probability in zip(class_names, class_probabilities)}
+    # Compute SSIM between two images
+    # score, diff = structural_similarity(first_gray, second_gray, full=True)
+    # print("Similarity Score: {:.3f}%".format(score * 100))
 
-        json_output = json.dumps(class_probabilities_dict, indent=4)
 
-        print(json_output)
-        return Response(response=json_output,status=200,mimetype='application/json')
+
+    probs=[]
+
+    # print(similarity_score(test_im,test_im2))
+    for i in bm_data:
+        print(type(bm_data[i]))
+        probs.append(similarity_score(bm_data[i],test_im))
+    s=0
+    for i in probs:
+        s+=i
+    for i in probs:
+        i/=s
+    print(probs)
+    
+
+
+    classes=list(bm_data.keys())
+    out={}
+    for i in range(len(classes)):
+        out[classes[i]]=probs[i]
+    
+    out=dict(sorted(out.items(), key=lambda x:x[1]))
+    rem=0
+    c=0
+    print(out)
+    okeys=list(out.keys())
+    ovals=list(out.values())
+    n=len(okeys)
+    for i in range(n//2):
+        ovals[i]/=2
+        ovals[n-i-1]+=ovals[i]
+
+    # out = dict(zip(okeys,ovals))
+    print(okeys,ovals)
+    out={}
+    for i in range(n):
+        out[okeys[i]]=ovals[i]
+
+
+
+
+    print(out)
+
+    json_output = json.dumps(out,indent=4)
+
+    return Response(response=json_output,status=200,mimetype='application/json')
 
 @app.route('/text-train',methods=['POST'])
 def textModel():
@@ -271,8 +328,38 @@ def textPredict():
 
     docs = [nlp(text)]
     textcat = nlp.get_pipe('textcat')
-    scores = textcat.predict(docs)
-    predicted_labels = scores.argmax(axis=1)
+    score = textcat.predict(docs)
+
+    def adjust_probabilities(probabilities, increase_by, decrease_by):
+        max_prob = np.max(probabilities)
+        min_prob = np.min(probabilities)
+        
+        max_index = np.argmax(probabilities)
+        probabilities[max_index] += increase_by
+        
+        remaining_prob = 1 - probabilities[max_index]
+        for i in range(len(probabilities)):
+            if i != max_index:
+                probabilities[i] -= decrease_by * (1 - increase_by)
+        
+        probabilities = probabilities / np.sum(probabilities)
+        
+        return probabilities
+
+
+
+    increase_by = 0.15 
+    num_labels = len(score[0])
+    decrease_by = increase_by / (num_labels - 1)  
+
+    for i in range(len(score)):
+        score[i] = adjust_probabilities(score[i], increase_by, decrease_by)
+
+    for i in range(len(score)):
+        assert np.isclose(np.sum(score[i]), 1.0), f"Sum is not 1 for row {i}"
+
+
+    predicted_labels = score.argmax(axis=1)
 
     predictions = []
     label_probs = {label: float(prob) for label, prob in zip(textcat.labels, score[0])}
