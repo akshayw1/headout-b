@@ -30,8 +30,8 @@ def upload():
 
         # Save the image to a file (change the file name and path as needed)
         img.save("dataset/" + folder_name + "/" + folder_name + "-" + str(time.time()) + "." + ext)
-        return "Image saved successfully!"
-    return "Image upload failed."
+        return "Image saved successfully!",200
+    return "Image upload failed.",500
 
 import math
 import torch
@@ -48,14 +48,11 @@ import numpy as np
 import cv2
 
 import json
+import pandas as pd
+import spacy
+from spacy.util import minibatch
+from spacy.training.example import Example
 
-# folder_name = 'dataset'
-# current_directory = os.getcwd()
-# folder_path = os.path.join(current_directory, folder_name)
-# if os.path.exists(folder_path) and os.path.isdir(folder_path):
-#     subfolders = [name for name in os.listdir(folder_path) if os.path.isdir(os.path.join(folder_path, name))]
-
-#     num_subfolders = len(subfolders)
 
 
 class SqueezeNet(nn.Module):
@@ -137,7 +134,7 @@ def train():
         
         num_subfolders = len(subfolders)
     else:
-        return "No subfolder"
+        return "No subfolder",404
     
 
     model = SqueezeNet()
@@ -227,7 +224,64 @@ def frame_upload():
         print(json_output)
         return Response(response=json_output,status=200,mimetype='application/json')
 
+@app.route('/text-train',methods=['POST'])
+def textModel():
+    json_data = request.form['data']
+    
+    data = []
+    for label, texts in json_data.items():
+        data.extend([{'text': text, 'label': label} for text in texts])
+    input = pd.DataFrame(data)
 
+    unique_labels = input['label'].unique()
+
+    unique_labels_list = unique_labels.tolist()
+
+
+    nlp = spacy.blank("en")
+
+    textcat = nlp.add_pipe("textcat")
+    for label in unique_labels_list:
+        textcat.add_label(label)
+
+    train_texts = input['text'].values
+    train_labels = [{'cats': {unique_label: label == unique_label for unique_label in unique_labels_list}} 
+                    for label in input['label']]
+    train_data = list(zip(train_texts, train_labels))
+
+
+    spacy.util.fix_random_seed(1)
+    optimizer = nlp.begin_training()
+
+    batches = minibatch(train_data, size=8)
+    for batch in batches:
+        for text, labels in batch:
+            doc = nlp.make_doc(text)
+            example = Example.from_dict(doc, labels)
+            nlp.update([example], sgd=optimizer)
+
+    nlp.to_disk('spacy_model')
+
+    return Response(status=200,response="Model Trained",mimetype='text/plain')
+
+@app.route('/text-predict',methods=['POST'])
+def textPredict():
+    text = request.form['text']
+    nlp = spacy.load('spacy_model')
+
+    docs = [nlp(text)]
+    textcat = nlp.get_pipe('textcat')
+    scores = textcat.predict(docs)
+    predicted_labels = scores.argmax(axis=1)
+
+    predictions = []
+    label_probs = {label: float(prob) for label, prob in zip(textcat.labels, score[0])}
+    predictions.append(label_probs)
+
+    results = {'text': text, 'label_probs': predictions[0]}
+    json_output = json.dumps(results, indent=4)
+
+    return Response(response=json_output,status=200,mimetype='application/json')
 
 if __name__ == '__main__':
     app.run(host='localhost', port=5000, debug=True)
