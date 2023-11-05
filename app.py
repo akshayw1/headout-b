@@ -244,7 +244,7 @@ def frame_upload():
         s+=i
     for i in probs:
         i/=s
-    print(probs)
+    # print(probs)
     
 
 
@@ -256,16 +256,17 @@ def frame_upload():
     out=dict(sorted(out.items(), key=lambda x:x[1]))
     rem=0
     c=0
-    print(out)
+    # print(out)
     okeys=list(out.keys())
     ovals=list(out.values())
     n=len(okeys)
     for i in range(n//2):
         ovals[i]/=2
         ovals[n-i-1]+=ovals[i]
+        ovals[1]=1-ovals[0]
 
     # out = dict(zip(okeys,ovals))
-    print(okeys,ovals)
+    # print(okeys,ovals)
     out={}
     for i in range(n):
         out[okeys[i]]=ovals[i]
