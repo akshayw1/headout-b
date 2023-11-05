@@ -281,8 +281,10 @@ def frame_upload():
 
 @app.route('/text-train',methods=['POST'])
 def textModel():
-    json_data = request.form['data']
+    json_Data = request.form['data']
     
+    json_data = json.loads(json_Data)
+    print(json_data)
     data = []
     for label, texts in json_data.items():
         data.extend([{'text': text, 'label': label} for text in texts])
@@ -321,7 +323,7 @@ def textModel():
 
 @app.route('/text-predict',methods=['POST'])
 def textPredict():
-    text = request.form['text']
+    text = request.form['data']
     nlp = spacy.load('spacy_model')
 
     docs = [nlp(text)]
@@ -369,4 +371,4 @@ def textPredict():
     return Response(response=json_output,status=200,mimetype='application/json')
 
 if __name__ == '__main__':
-    app.run(host='localhost', port=5000, debug=True)
+    app.run(host='localhost', port=8080, debug=True)

@@ -18,8 +18,8 @@
   },
   "labels":{
     "textcat":[
-      "sad",
-      "happy"
+      "happy",
+      "Sad"
     ]
   },
   "pipeline":[
