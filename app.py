@@ -207,14 +207,12 @@ def frame_upload():
     img.save(fileName)
     # cv2.imwrite(fileName,img)
     test_im=cv2.imread(fileName)
-    print(test_im.shape==bm_data["bhuppi2"].shape)
 
     dim=list(bm_data[list(bm_data.keys())[0]].shape)
 
 
     # test_im=test_im.reshape((225,300,3))
     test_im=cv2.resize(test_im,dsize=(dim[1], dim[0]), interpolation=cv2.INTER_CUBIC)
-    print(test_im.shape,bm_data["bhuppi2"].shape)
     # test_im2=cv2.imread("b2.jpg")
     # print()
 
